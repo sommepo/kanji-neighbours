@@ -1,0 +1,19 @@
+{
+  "word_fields": ["wordDictionaryForm"],
+  "reading_fields": ["reading"],
+  "definition_fields": ["definition"],
+  "sentence_fields": ["sentence"],
+  "native_sentence_fields": ["englishSentence"],
+  "word_selectors": ["#word", ".kanji-neighbours-word", ".kanji-lookup-word"],
+  "show_in_popup": {
+    "word": true,
+    "reading": true,
+    "definition": true,
+    "sentence": true,
+    "native": true
+  },
+  "note_type_map": {},
+  "min_reps": 1,
+  "deck_scope": "current",
+  "max_results": 200
+}
