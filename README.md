@@ -11,7 +11,7 @@ Each result can show:
 
 Click a row to open that note in Browse. The popup also loads a short kanji summary (meanings / readings) plus a right-side structure box with the dictionary radical, visual parts, and their meanings when you are online. Kanji facts come from [kanjiapi.dev](https://kanjiapi.dev); radical and component data comes from [KanjiVG](https://kanjivg.tagaini.net/).
 
-![Kanji Neighbours popup while reviewing a card](screenshots/popup.png)
+![Kanji Neighbours popup while reviewing a card](screenshots/popup-radicals.png)
 
 ## Requirements
 
