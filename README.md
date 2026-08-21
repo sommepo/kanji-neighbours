@@ -9,7 +9,7 @@ Each result can show:
 - Japanese sentence
 - native-language sentence
 
-Click a row to open that note in Browse. The popup also loads a short kanji summary (meanings / readings) from [kanjiapi.dev](https://kanjiapi.dev) when you are online.
+Click a row to open that note in Browse. The popup also loads a short kanji summary (meanings / readings) plus a right-side structure box with the dictionary radical, visual parts, and their meanings when you are online. Kanji facts come from [kanjiapi.dev](https://kanjiapi.dev); radical and component data comes from [KanjiVG](https://kanjivg.tagaini.net/).
 
 ![Kanji Neighbours popup while reviewing a card](screenshots/popup.png)
 
@@ -76,6 +76,12 @@ Copy-Item "$src\*" $dst -Recurse -Force
 - Only cards with enough reviews are included (`min_reps`, default 1)
 - Definition HTML is stripped to plain text (line breaks / list items preserved where possible)
 - Compatible with hover tools that wrap kanji (does not rewrite the card DOM)
+- The popup's structure box shows the generally accepted dictionary radical and the main visual components (from KanjiVG), with component meanings where kanjiapi.dev has them
+
+## Data sources
+
+- [kanjiapi.dev](https://kanjiapi.dev) provides kanji facts.
+- [KanjiVG](https://kanjivg.tagaini.net/) provides the radical and component structure, under [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/).
 
 ## Config reference
 

@@ -8,6 +8,7 @@ import json
 import re
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 from typing import Any
 from urllib.parse import quote
 
@@ -336,6 +337,9 @@ def open_note_in_browser(note_id: int) -> None:
 
 
 _KANJI_INFO_CACHE: dict[str, dict[str, Any] | None] = {}
+_KANJIVG_CACHE: dict[str, dict[str, Any] | None] = {}
+KVG_NS = "http://kanjivg.tagaini.net"
+KANJI_CHAR_RE = re.compile(r"[\u3400-\u9FFF\uF900-\uFAFF]")
 
 
 def fetch_kanji_info(kanji: str) -> dict[str, Any] | None:
@@ -356,6 +360,75 @@ def fetch_kanji_info(kanji: str) -> dict[str, Any] | None:
         return None
 
 
+def _component_meaning(char: str, original: str = "") -> str:
+    lookup = original if original and KANJI_CHAR_RE.fullmatch(original) else char
+    if not KANJI_CHAR_RE.fullmatch(lookup):
+        return ""
+    info = fetch_kanji_info(lookup)
+    return _join_list((info or {}).get("meanings"))
+
+
+def fetch_kanjivg_data(kanji: str) -> dict[str, Any] | None:
+    """Get the dictionary radical and top-level visual components from KanjiVG."""
+    if kanji in _KANJIVG_CACHE:
+        return _KANJIVG_CACHE[kanji]
+
+    url = (
+        "https://raw.githubusercontent.com/KanjiVG/kanjivg/master/kanji/"
+        f"{ord(kanji):05x}.svg"
+    )
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "KanjiNeighbours/1.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            root = ET.fromstring(resp.read())
+
+        element_attr = f"{{{KVG_NS}}}element"
+        original_attr = f"{{{KVG_NS}}}original"
+        radical_attr = f"{{{KVG_NS}}}radical"
+        groups = list(root.iter("{http://www.w3.org/2000/svg}g"))
+        radical_group = next(
+            (group for group in groups if group.get(radical_attr) == "general"), None
+        )
+        radical = ""
+        radical_original = ""
+        radical_meaning = ""
+        if radical_group is not None:
+            radical = radical_group.get(element_attr, "")
+            radical_original = radical_group.get(original_attr, "")
+            radical_meaning = _component_meaning(radical, radical_original)
+
+        composition_root = next(
+            (group for group in groups if group.get(element_attr) == kanji), None
+        )
+        components: list[dict[str, str]] = []
+        if composition_root is not None:
+            for child in list(composition_root):
+                if child.tag != "{http://www.w3.org/2000/svg}g":
+                    continue
+                element = child.get(element_attr, "")
+                if element and element != kanji:
+                    original = child.get(original_attr, "")
+                    components.append(
+                        {
+                            "element": element,
+                            "original": original,
+                            "meaning": _component_meaning(element, original),
+                        }
+                    )
+
+        data = {
+            "radical": radical,
+            "radical_original": radical_original,
+            "radical_meaning": radical_meaning,
+            "components": components,
+        }
+        _KANJIVG_CACHE[kanji] = data
+        return data
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ET.ParseError, OSError):
+        _KANJIVG_CACHE[kanji] = None
+        return None
+
+
 def _join_list(values: Any) -> str:
     if not isinstance(values, list):
         return ""
@@ -363,7 +436,10 @@ def _join_list(values: Any) -> str:
     return ", ".join(parts)
 
 
-def format_kanji_info_html(info: dict[str, Any] | None, kanji: str) -> str:
+def format_kanji_info_html(
+    info: dict[str, Any] | None,
+    kanji: str,
+) -> str:
     if not info:
         return (
             '<div style="font-size:13px;opacity:0.55;">'
@@ -374,21 +450,100 @@ def format_kanji_info_html(info: dict[str, Any] | None, kanji: str) -> str:
     label = "color:#e95464;font-weight:600;"
     rows: list[str] = [
         f'<div style="font-size:15px;line-height:1.45;">'
-        f'<span style="{label}">Kanji:</span> {html.escape(str(info.get("kanji") or kanji))}'
+        f'<span style="{label}">Kanji:</span> '
+        f'{html.escape(str((info or {}).get("kanji") or kanji))}'
     ]
-    if info.get("grade") is not None:
+    if info and info.get("grade") is not None:
         rows.append(
             f'<br><span style="{label}">Grade:</span> {html.escape(str(info["grade"]))}'
         )
-    meanings = _join_list(info.get("meanings"))
+    meanings = _join_list((info or {}).get("meanings"))
     if meanings:
         rows.append(f'<br><span style="{label}">Meaning:</span> {html.escape(meanings)}')
-    kun = _join_list(info.get("kun_readings"))
+    kun = _join_list((info or {}).get("kun_readings"))
     if kun:
         rows.append(f'<br><span style="{label}">Kun\'yomi:</span> {html.escape(kun)}')
-    on = _join_list(info.get("on_readings"))
+    on = _join_list((info or {}).get("on_readings"))
     if on:
         rows.append(f'<br><span style="{label}">On\'yomi:</span> {html.escape(on)}')
+    rows.append("</div>")
+    return "".join(rows)
+
+
+def _component_display_html(component: dict[str, str]) -> str:
+    element = str(component.get("element") or "")
+    original = str(component.get("original") or "")
+    meaning = str(component.get("meaning") or "")
+    form = ""
+    if original and original != element:
+        form = f'<div style="font-size:11px;opacity:0.58;">{html.escape(original)} form</div>'
+    meaning_html = (
+        f'<div style="font-size:12px;line-height:1.25;opacity:0.82;">{html.escape(meaning)}</div>'
+        if meaning
+        else '<div style="font-size:12px;line-height:1.25;opacity:0.46;">meaning unavailable</div>'
+    )
+    return (
+        '<div style="margin-top:7px;padding-top:7px;border-top:1px solid #3a3a3a;">'
+        '<table cellpadding="0" cellspacing="0" width="100%">'
+        "<tr>"
+        '<td valign="top" style="width:38px;">'
+        f'<span style="font-size:24px;font-weight:700;">{html.escape(element)}</span>'
+        "</td>"
+        '<td valign="top">'
+        f"{meaning_html}{form}"
+        "</td>"
+        "</tr>"
+        "</table>"
+        "</div>"
+    )
+
+
+def format_kanji_structure_html(kanjivg_data: dict[str, Any] | None) -> str:
+    label = "color:#e95464;font-weight:700;font-size:12px;text-transform:uppercase;"
+    if not kanjivg_data:
+        return (
+            '<div style="font-size:13px;line-height:1.35;opacity:0.55;">'
+            "Radicals unavailable<br>needs network · KanjiVG"
+            "</div>"
+        )
+
+    rows: list[str] = ['<div style="font-size:13px;line-height:1.35;">']
+    if kanjivg_data:
+        radical = str(kanjivg_data.get("radical") or "")
+        original = str(kanjivg_data.get("radical_original") or "")
+        radical_meaning = str(kanjivg_data.get("radical_meaning") or "")
+        if radical:
+            rows.append(f'<div style="{label}">Radical</div>')
+            rows.append(
+                _component_display_html(
+                    {
+                        "element": radical,
+                        "original": original,
+                        "meaning": radical_meaning,
+                    }
+                )
+            )
+        components = kanjivg_data.get("components")
+        if isinstance(components, list) and components:
+            rows.append(f'<div style="{label};margin-top:11px;">Parts</div>')
+            for component in components:
+                if isinstance(component, dict):
+                    rows.append(_component_display_html(component))
+                else:
+                    rows.append(
+                        _component_display_html(
+                            {
+                                "element": str(component),
+                                "original": "",
+                                "meaning": _component_meaning(str(component)),
+                            }
+                        )
+                    )
+            rows.append(
+                '<div style="font-size:11px;opacity:0.48;margin-top:8px;">KanjiVG structure</div>'
+            )
+    if len(rows) == 1:
+        rows.append('<div style="opacity:0.55;">No radical details found.</div>')
     rows.append("</div>")
     return "".join(rows)
 
@@ -500,6 +655,7 @@ class ResultsDialog(QDialog):
         deck_name: str,
         results: list[dict[str, str]],
         kanji_info: dict[str, Any] | None = None,
+        kanjivg_data: dict[str, Any] | None = None,
         parent=None,
     ):
         super().__init__(parent or mw)
@@ -526,15 +682,36 @@ class ResultsDialog(QDialog):
                 border: 1px solid #3a3a3a;
                 border-radius: 10px;
             }
+            QFrame#kanjiStructure {
+                background: #211d22;
+                border: 1px solid #443944;
+                border-radius: 8px;
+            }
             """
         )
-        info_layout = QVBoxLayout(info_box)
+        info_layout = QHBoxLayout(info_box)
         info_layout.setContentsMargins(14, 12, 14, 12)
+        info_layout.setSpacing(12)
+
         info_label = QLabel(format_kanji_info_html(kanji_info, kanji))
         info_label.setTextFormat(Qt.TextFormat.RichText)
         info_label.setWordWrap(True)
         info_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        info_layout.addWidget(info_label)
+        info_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        info_layout.addWidget(info_label, 1)
+
+        structure_box = QFrame()
+        structure_box.setObjectName("kanjiStructure")
+        structure_box.setMinimumWidth(180)
+        structure_box.setMaximumWidth(260)
+        structure_layout = QVBoxLayout(structure_box)
+        structure_layout.setContentsMargins(12, 10, 12, 10)
+        structure_label = QLabel(format_kanji_structure_html(kanjivg_data))
+        structure_label.setTextFormat(Qt.TextFormat.RichText)
+        structure_label.setWordWrap(True)
+        structure_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        structure_layout.addWidget(structure_label)
+        info_layout.addWidget(structure_box)
         root.addWidget(info_box)
 
         header = QLabel(
@@ -687,11 +864,13 @@ def show_kanji_lookup(kanji: str) -> None:
         tooltip("Kanji Neighbours works while reviewing a card.")
         return
     kanji_info = fetch_kanji_info(kanji)
+    kanjivg_data = fetch_kanjivg_data(kanji)
     dialog = ResultsDialog(
         kanji,
         deck_name or "",
         results,
         kanji_info=kanji_info,
+        kanjivg_data=kanjivg_data,
         parent=mw,
     )
     dialog.exec()
