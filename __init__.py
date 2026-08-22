@@ -662,6 +662,7 @@ class ResultsDialog(QDialog):
         self.setWindowTitle(f"{ADDON_NAME} — {kanji}")
         self.resize(720, 640)
         self.setMinimumSize(480, 360)
+        self._note_to_open = 0
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
@@ -773,7 +774,7 @@ class ResultsDialog(QDialog):
     def _entry_widget(self, item: dict[str, str]) -> QFrame:
         show = _show_in_popup(_cfg())
         note_id = int(item["note_id"]) if item.get("note_id") else 0
-        frame = _ClickableEntry(note_id)
+        frame = _ClickableEntry(note_id, self)
         frame.setObjectName("entry")
         frame.setStyleSheet(
             """
@@ -837,11 +838,16 @@ class ResultsDialog(QDialog):
         frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         return frame
 
+    def open_note_after_close(self, note_id: int) -> None:
+        self._note_to_open = note_id
+        self.accept()
+
 
 class _ClickableEntry(QFrame):
-    def __init__(self, note_id: int, parent=None):
+    def __init__(self, note_id: int, dialog: ResultsDialog, parent=None):
         super().__init__(parent)
         self._note_id = note_id
+        self._dialog = dialog
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip("Open in Browse")
 
@@ -852,7 +858,7 @@ class _ClickableEntry(QFrame):
             else:
                 pos = event.pos()
             if self.rect().contains(pos):
-                open_note_in_browser(self._note_id)
+                self._dialog.open_note_after_close(self._note_id)
         super().mouseReleaseEvent(event)
 
 
@@ -874,6 +880,8 @@ def show_kanji_lookup(kanji: str) -> None:
         parent=mw,
     )
     dialog.exec()
+    if dialog._note_to_open:
+        open_note_in_browser(dialog._note_to_open)
 
 
 def on_webview_message(handled: tuple[bool, Any], message: str, context: Any):
